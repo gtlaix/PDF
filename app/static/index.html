@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning PDF Compressor</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #667085; --border: #d9dee7;
+    --accent: #1f6feb; --accent-soft: #e8f0fe; --ok: #1a7f37; --warn: #b54708; --err: #c0262d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #98a2b3; --border: #2e3440;
+      --accent: #4c8dff; --accent-soft: #1d2a42; --ok: #3fb950; --warn: #f0a33a; --err: #f47067;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .settings { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-bottom: 16px; }
+  .settings label { font-weight: 600; }
+  .settings input { width: 90px; padding: 6px 8px; font: inherit; color: var(--text); background: var(--bg);
+                    border: 1px solid var(--border); border-radius: 6px; }
+  .presets button { margin-right: 4px; }
+  button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--border);
+           background: var(--card); color: var(--text); padding: 6px 12px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .presets button.active { background: var(--accent-soft); border-color: var(--accent); }
+  #drop { border: 2px dashed var(--border); border-radius: 12px; padding: 48px 16px; text-align: center;
+          color: var(--muted); transition: background .15s, border-color .15s; cursor: pointer; }
+  #drop.over { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  #drop strong { color: var(--text); font-size: 17px; display: block; margin-bottom: 4px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 24px 0 8px; }
+  .toolbar .summary { margin-right: auto; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border);
+          border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .name { word-break: break-word; font-weight: 500; }
+  .status { font-size: 13px; white-space: nowrap; }
+  .s-ok { color: var(--ok); } .s-warn { color: var(--warn); } .s-err { color: var(--err); }
+  .s-busy { color: var(--muted); }
+  .note { font-size: 13px; color: var(--warn); margin-top: 4px; }
+  .links a { display: block; color: var(--accent); text-decoration: none; font-size: 14px; white-space: nowrap; }
+  .links a:hover { text-decoration: underline; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border);
+             border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite;
+             vertical-align: -1px; margin-right: 4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #banner { display: none; background: var(--card); border: 1px solid var(--err); color: var(--err);
+            border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Planning PDF Compressor</h1>
+  <p class="sub">Drop planning application PDFs here to shrink them under a size limit. Everything runs on this computer.</p>
+
+  <div id="banner"></div>
+
+  <div class="card">
+    <div class="settings">
+      <div>
+        <label for="target">Max size per file</label>
+        <input id="target" type="number" min="0.5" max="500" step="0.5" value="10"> MB
+      </div>
+      <div class="presets" id="presets">
+        <button data-mb="2">2 MB</button><button data-mb="5">5 MB</button><button data-mb="10">10 MB</button><button data-mb="20">20 MB</button>
+      </div>
+    </div>
+    <div id="drop" tabindex="0" role="button" aria-label="Choose PDF files">
+      <strong>Drop PDFs here</strong>
+      or click to choose files. Large files can take a minute or two each.
+    </div>
+    <input id="picker" type="file" accept="application/pdf,.pdf" multiple hidden>
+  </div>
+
+  <div class="toolbar">
+    <span class="summary" id="summary"></span>
+    <button id="csv" disabled>Download report (CSV)</button>
+    <button id="zip" class="primary" disabled>Download all (ZIP)</button>
+    <button id="clear" disabled>Clear</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>File</th><th>Before</th><th>After</th><th>Saved</th><th>Quality</th><th>Status</th><th>Download</th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="7" class="empty">No files yet.</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+const CONCURRENCY = 2;
+const $ = (id) => document.getElementById(id);
+const items = [];   // {file, target, state, result, error, row}
+let running = 0;
+
+// ---- settings ----
+const targetInput = $("target");
+try { const saved = localStorage.getItem("targetMb"); if (saved) targetInput.value = saved; } catch {}
+function syncPresets() {
+  for (const b of $("presets").children) b.classList.toggle("active", +b.dataset.mb === +targetInput.value);
+}
+targetInput.addEventListener("input", () => {
+  try { localStorage.setItem("targetMb", targetInput.value); } catch {}
+  syncPresets();
+});
+$("presets").addEventListener("click", (e) => {
+  if (!e.target.dataset.mb) return;
+  targetInput.value = e.target.dataset.mb;
+  targetInput.dispatchEvent(new Event("input"));
+});
+syncPresets();
+
+// ---- health check ----
+fetch("/api/health").then(r => r.json()).then(h => {
+  if (!h.ok) { $("banner").textContent = h.error; $("banner").style.display = "block"; }
+}).catch(() => {});
+
+// ---- drop zone ----
+const drop = $("drop"), picker = $("picker");
+drop.addEventListener("click", () => picker.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
+picker.addEventListener("change", () => { addFiles(picker.files); picker.value = ""; });
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+// Stop the browser opening a PDF dropped just outside the zone.
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
+function addFiles(fileList) {
+  const target = parseFloat(targetInput.value);
+  if (!(target >= 0.5 && target <= 500)) { alert("Please set a max size between 0.5 and 500 MB."); return; }
+  const pdfs = [...fileList].filter(f => f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf");
+  if (pdfs.length < fileList.length) alert("Only PDF files are supported; other files were skipped.");
+  if (!items.length) $("rows").innerHTML = "";
+  for (const file of pdfs) {
+    const item = { file, target, state: "queued" };
+    item.row = document.createElement("tr");
+    $("rows").appendChild(item.row);
+    items.push(item);
+    render(item);
+  }
+  pump();
+  updateToolbar();
+}
+
+function pump() {
+  while (running < CONCURRENCY) {
+    const next = items.find(i => i.state === "queued");
+    if (!next) return;
+    process(next);
+  }
+}
+
+async function process(item) {
+  running++;
+  item.state = "working"; render(item);
+  const fd = new FormData();
+  fd.append("file", item.file);
+  fd.append("target_mb", item.target);
+  try {
+    const r = await fetch("/api/compress", { method: "POST", body: fd });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || `Server error (${r.status})`);
+    item.result = data; item.state = "done";
+  } catch (e) {
+    item.error = e.message.includes("fetch") ? "Can't reach the app; is it still running?" : e.message;
+    item.state = "error";
+  }
+  running--;
+  render(item); updateToolbar(); pump();
+}
+
+// ---- rendering ----
+const fmt = (b) => b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function render(item) {
+  const { file, result: res } = item;
+  let after = "", saved = "", quality = "", status = "", links = "", notes = "";
+  if (item.state === "queued") status = `<span class="status s-busy">Queued</span>`;
+  if (item.state === "working") status = `<span class="status s-busy"><span class="spinner"></span>Compressing…</span>`;
+  if (item.state === "error") status = `<span class="status s-err">Failed</span>`, notes = `<div class="note" style="color:var(--err)">${esc(item.error)}</div>`;
+  if (item.state === "done") {
+    const n = res.parts.length;
+    after = n > 1 ? `${fmt(res.total_size)}<br><small>${res.parts.map(p => fmt(p.size)).join(" + ")}</small>` : fmt(res.total_size);
+    const pct = Math.round((1 - res.total_size / res.original_size) * 100);
+    saved = res.status === "unchanged" ? "–" : pct > 0 ? pct + "%" : "0%";
+    quality = esc(res.quality || "");
+    status = {
+      unchanged:   `<span class="status s-ok">Already under ${fmt(res.target_size)}</span>`,
+      compressed:  `<span class="status s-ok">Compressed</span>`,
+      split:       `<span class="status s-warn">Split into ${n} parts</span>`,
+      over_target: `<span class="status s-err">Still over ${fmt(res.target_size)}</span>`,
+    }[res.status];
+    if (res.status !== "over_target" && !res.warnings.length) status = status.replace("s-warn", "s-ok");
+    notes = res.warnings.map(w => `<div class="note">${esc(w)}</div>`).join("");
+    links = res.parts.map(p => `<a href="${p.url}" download="${esc(p.name)}">${n > 1 ? esc(p.name.replace(/^.* - /, "")) : "Download"}</a>`).join("");
+  }
+  item.row.innerHTML = `
+    <td><div class="name">${esc(file.name)}</div>${notes}</td>
+    <td class="num">${fmt(file.size)}</td>
+    <td class="num">${after}</td>
+    <td class="num">${saved}</td>
+    <td class="num">${quality}</td>
+    <td>${status}</td>
+    <td class="links">${links}</td>`;
+}
+
+function updateToolbar() {
+  const done = items.filter(i => i.state === "done");
+  const busy = items.filter(i => i.state === "queued" || i.state === "working").length;
+  const before = done.reduce((s, i) => s + i.result.original_size, 0);
+  const after = done.reduce((s, i) => s + i.result.total_size, 0);
+  let text = items.length ? `${done.length} of ${items.length} done` : "";
+  if (busy) text += ` · ${busy} in progress`;
+  if (done.length) text += ` · ${fmt(before)} → ${fmt(after)}`;
+  $("summary").textContent = text;
+  $("zip").disabled = $("csv").disabled = !done.length;
+  $("clear").disabled = !items.length || busy > 0;
+}
+
+// ---- downloads ----
+$("zip").addEventListener("click", async () => {
+  const btn = $("zip"); btn.disabled = true; btn.textContent = "Preparing ZIP…";
+  try {
+    const ids = items.filter(i => i.state === "done").map(i => i.result.id);
+    const r = await fetch("/api/zip", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "ZIP failed");
+    saveBlob(await r.blob(), "compressed-pdfs.zip");
+  } catch (e) { alert(e.message); }
+  btn.textContent = "Download all (ZIP)"; btn.disabled = false;
+});
+
+$("csv").addEventListener("click", () => {
+  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [["File", "Before (MB)", "After (MB)", "Saved %", "Parts", "Part sizes (MB)", "Quality", "Status", "Notes"].map(q).join(",")];
+  for (const i of items.filter(i => i.state === "done")) {
+    const r = i.result;
+    lines.push([r.name, (r.original_size / 1e6).toFixed(2), (r.total_size / 1e6).toFixed(2),
+      Math.round((1 - r.total_size / r.original_size) * 100), r.parts.length,
+      r.parts.map(p => (p.size / 1e6).toFixed(2)).join(" + "), r.quality, r.status, r.warnings.join(" ")].map(q).join(","));
+  }
+  saveBlob(new Blob([lines.join("\r\n")], { type: "text/csv" }), "compression-report.csv");
+});
+
+$("clear").addEventListener("click", () => {
+  items.length = 0;
+  $("rows").innerHTML = `<tr><td colspan="7" class="empty">No files yet.</td></tr>`;
+  updateToolbar();
+});
+
+function saveBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+</script>
+</body>
+</html>
