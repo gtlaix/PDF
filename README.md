@@ -23,7 +23,18 @@ count, so a "10 MB" result will pass a 10 MB limit.
 
 ## Running it
 
-### Option A: Docker (easiest, works on Windows, Mac and Linux)
+### Option A: In the browser (nothing to install)
+
+`browser/` is a version that runs entirely inside a web page: Ghostscript compiled to
+WebAssembly does the compression and pdf-lib does the splitting, with the same rules as
+the local app. Files are processed in the browser tab and never uploaded. It's slower than
+the local app, about 30–40 seconds for an 80 MB file.
+
+To rebuild it, run `browser/build.sh`. This needs Node/npm and writes `browser/dist/`.
+`dist/` holds three files: `index.html`, `worker.js` and `gs-gzip.wasm`. Serve them together
+from any static host.
+
+### Option B: Docker (easiest, works on Windows, Mac and Linux)
 
 Install [Docker Desktop](https://www.docker.com/products/docker-desktop/), then in this folder run:
 
@@ -38,7 +49,7 @@ To stop it:
 docker compose down
 ```
 
-### Option B: Python
+### Option C: Python
 
 1. Install **Python 3.10+** and **Ghostscript**:
    - Windows: Ghostscript from <https://ghostscript.com/releases/gsdnld.html> (64-bit installer).

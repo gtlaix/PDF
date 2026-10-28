@@ -1,0 +1,485 @@
+<title>Planning PDF Compressor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,500..800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a drawing-sheet title block over a drop zone and a schedule of results. */
+  :root {
+    --paper: #f4f6f8;
+    --sheet: #ffffff;
+    --ink: #17202b;
+    --muted: #5b6878;
+    --rule: #cfd6df;
+    --accent: #1f5fbf;
+    --accent-ink: #ffffff;
+    --accent-soft: #e6eefb;
+    --ok: #17784a;
+    --warn: #a3520a;
+    --err: #b8262f;
+    --font-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+    --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0f141a; --sheet: #171e27; --ink: #e5eaf0; --muted: #96a3b3; --rule: #2c3644;
+      --accent: #5b9bff; --accent-ink: #0b1422; --accent-soft: #1a2b45;
+      --ok: #4cc38a; --warn: #f0a24a; --err: #ff7a7f;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0f141a; --sheet: #171e27; --ink: #e5eaf0; --muted: #96a3b3; --rule: #2c3644;
+    --accent: #5b9bff; --accent-ink: #0b1422; --accent-soft: #1a2b45;
+    --ok: #4cc38a; --warn: #f0a24a; --err: #ff7a7f;
+    color-scheme: dark;
+  }
+
+  body { background: var(--paper); color: var(--ink); font: 15px/1.55 var(--font-body); }
+  main {
+    max-width: 1040px; margin: 0 auto;
+    padding-block: 32px 64px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; gap: 20px;
+  }
+  button, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Title block */
+  .titleblock {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    border: 1.5px solid var(--ink); background: var(--sheet);
+  }
+  .titleblock .name { padding: 16px 20px; border-right: 1.5px solid var(--ink); min-width: 0; }
+  h1 {
+    font: 800 clamp(26px, 4.4vw, 38px)/1.05 var(--font-display);
+    font-stretch: 80%; letter-spacing: -0.01em; margin: 0 0 6px; text-wrap: balance;
+  }
+  .name p { margin: 0; color: var(--muted); max-width: 60ch; }
+  .cells { display: grid; grid-template-columns: repeat(2, auto); }
+  .cell { padding: 10px 16px; border-bottom: 1px solid var(--rule); border-left: 1px solid var(--rule); min-width: 0; }
+  .cell:nth-child(odd) { border-left: 0; }
+  .cell:nth-last-child(-n+2) { border-bottom: 0; }
+  .label {
+    display: block; font: 600 10.5px/1.2 var(--font-body); text-transform: uppercase;
+    letter-spacing: .08em; color: var(--muted); margin-bottom: 4px;
+  }
+  .value { font: 500 15px/1.3 var(--font-data); white-space: nowrap; }
+  .target-input { display: inline-flex; align-items: baseline; gap: 4px; }
+  #target {
+    width: 4.5ch; padding: 0 2px; border: 0; border-bottom: 1.5px dashed var(--accent);
+    background: transparent; font: 500 15px/1.3 var(--font-data); text-align: right;
+    -moz-appearance: textfield;
+  }
+  #target::-webkit-inner-spin-button, #target::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .engine { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+  .engine[data-state="ready"] .dot { background: var(--ok); }
+  .engine[data-state="error"] .dot { background: var(--err); }
+  .engine[data-state="loading"] .dot { animation: pulse 1s ease-in-out infinite alternate; }
+  @keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+  .chip {
+    border: 1px solid var(--rule); background: var(--sheet); border-radius: 999px;
+    padding: 3px 11px; cursor: pointer; font: 500 13px/1.4 var(--font-data);
+  }
+  .chip[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+  /* Drop zone */
+  #drop {
+    border: 1.5px dashed var(--rule); background: var(--sheet);
+    padding: 40px 16px; text-align: center; cursor: pointer; color: var(--muted);
+    transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+  #drop strong { display: block; color: var(--ink); font: 700 20px/1.3 var(--font-display); font-stretch: 85%; margin-bottom: 4px; }
+
+  /* Rules */
+  .rules { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--rule); }
+  .rule { padding: 12px 16px 0 0; font-size: 13.5px; color: var(--muted); min-width: 0; }
+  .rule b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+  .rule .step { font: 500 11px/1 var(--font-data); color: var(--accent); margin-bottom: 6px; display: block; }
+
+  /* Schedule */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .toolbar h2 { font: 700 18px/1.2 var(--font-display); font-stretch: 85%; margin: 0; }
+  .summary { color: var(--muted); font: 400 13px/1.4 var(--font-data); margin-right: auto; }
+  .btn {
+    border: 1px solid var(--rule); background: var(--sheet); padding: 7px 14px; cursor: pointer;
+    border-radius: 4px; font-weight: 500;
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--sheet); }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font: 600 10.5px/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { font: 400 13.5px/1.5 var(--font-data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.num small { color: var(--muted); font-size: 12px; }
+  .fname { font-weight: 500; word-break: break-word; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; border: 1px solid currentColor; }
+  .s-ok { color: var(--ok); } .s-warn { color: var(--warn); } .s-err { color: var(--err); } .s-busy { color: var(--muted); }
+  .note { font-size: 13px; color: var(--warn); margin-top: 4px; }
+  .note.err { color: var(--err); }
+  .progress { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+  .dl { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+  .link { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; font-size: 14px; text-align: left; white-space: nowrap; }
+  .link:hover { text-decoration: underline; }
+  .empty td { color: var(--muted); text-align: center; padding: 28px 12px; }
+  .example td { color: var(--muted); }
+  .example .tag { font: 600 10px/1 var(--font-body); letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--rule); padding: 2px 5px; margin-left: 6px; vertical-align: 2px; }
+  .spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--rule); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #toast {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+    background: var(--ink); color: var(--paper); padding: 9px 16px; border-radius: 6px; font-size: 14px;
+    max-width: calc(100% - 32px);
+  }
+  footer { color: var(--muted); font-size: 13px; }
+  @media (max-width: 760px) {
+    .titleblock { grid-template-columns: 1fr; }
+    .titleblock .name { border-right: 0; border-bottom: 1.5px solid var(--ink); }
+    .rules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (prefers-reduced-motion: reduce) { .spin, .engine .dot { animation: none !important; } }
+</style>
+
+<main>
+  <header class="titleblock">
+    <div class="name">
+      <h1>Planning PDF Compressor</h1>
+      <p>Shrink planning application PDFs to fit a portal's upload limit. Files are processed in this browser tab and are never uploaded.</p>
+    </div>
+    <div class="cells">
+      <div class="cell">
+        <span class="label">Max size per file</span>
+        <span class="value target-input"><input id="target" type="number" min="0.5" max="500" step="0.5" value="10" aria-label="Max size per file in MB"> MB</span>
+      </div>
+      <div class="cell"><span class="label">Max parts</span><span class="value">3</span></div>
+      <div class="cell"><span class="label">Readable floor</span><span class="value">100 DPI</span></div>
+      <div class="cell">
+        <span class="label">Engine</span>
+        <span class="value engine" id="engine" data-state="loading"><span class="dot"></span><span id="engine-text">Loading</span></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="presets" id="presets">
+    Common limits:
+    <button class="chip" data-mb="2" aria-pressed="false">2 MB</button>
+    <button class="chip" data-mb="5" aria-pressed="false">5 MB</button>
+    <button class="chip" data-mb="10" aria-pressed="false">10 MB</button>
+    <button class="chip" data-mb="20" aria-pressed="false">20 MB</button>
+  </div>
+
+  <div id="drop" tabindex="0" role="button" aria-label="Choose PDF files">
+    <strong>Drop PDFs here</strong>
+    or click to choose. Drawings, site photos, statements and scans all work.
+  </div>
+  <input id="picker" type="file" accept="application/pdf,.pdf" multiple hidden>
+
+  <section class="rules" aria-label="What happens to each file">
+    <div class="rule"><span class="step">1</span><b>Under the limit</b>Left exactly as it is.</div>
+    <div class="rule"><span class="step">2</span><b>Over the limit</b>Images are reduced to the highest quality that fits, from 300 DPI down to 100 DPI. Text and line work stay sharp.</div>
+    <div class="rule"><span class="step">3</span><b>Won't fit at 100 DPI</b>Split into up to 3 parts, each under the limit.</div>
+    <div class="rule"><span class="step">4</span><b>Still too big</b>Goes below 100 DPI and is flagged so you can check it.</div>
+  </section>
+
+  <section style="display:grid; gap:10px">
+    <div class="toolbar">
+      <h2>Results</h2>
+      <span class="summary" id="summary"></span>
+      <button class="btn" id="csv" disabled>Save report (CSV)</button>
+      <button class="btn primary" id="zip" disabled>Save all (ZIP)</button>
+      <button class="btn" id="clear" disabled>Clear</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>File</th><th>Before</th><th>After</th><th>Saved</th><th>Quality</th><th>Status</th><th>Save</th>
+        </tr></thead>
+        <tbody id="rows">
+          <tr class="example">
+            <td><span class="fname">Site Photographs.pdf</span><span class="tag">Example</span></td>
+            <td class="num">86.1 MB</td>
+            <td class="num">19.4 MB<br><small>9.2 + 8.8 + 1.5 MB</small></td>
+            <td class="num">77%</td><td class="num">Good (150 DPI)</td>
+            <td><span class="pill s-ok">Split into 3 parts</span></td><td></td>
+          </tr>
+          <tr class="example">
+            <td><span class="fname">Heritage Statement.pdf</span><span class="tag">Example</span></td>
+            <td class="num">13.0 MB</td><td class="num">5.8 MB</td><td class="num">55%</td>
+            <td class="num">High (300 DPI)</td><td><span class="pill s-ok">Compressed</span></td><td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Large files take a little while: allow around 10–60 seconds for an 80 MB file, depending on your computer. Keep this tab open until everything is done.
+    Sizes use 1 MB = 1,000,000 bytes, as upload portals do.
+  </footer>
+</main>
+<div id="toast" hidden></div>
+
+<script>
+const MB = 1e6;
+const MAX_PARTS = 3;
+const $ = (id) => document.getElementById(id);
+const items = [];   // {id, file, target, state, progress, result, error, row}
+let nextId = 1, busy = false, engineReady = false;
+
+// ---- saving files ----
+const downloadsReady = window.claude && window.claude.use ? window.claude.use("downloads") : Promise.resolve(null);
+async function saveFile(name, blob) {
+  const dl = await downloadsReady;
+  if (!dl) {  // opened outside the Claude viewer: plain browser download
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    return;
+  }
+  try {
+    await dl.save({ filename: name, data: blob });
+    toast(`Saved ${name}`);
+  } catch (e) {
+    if (e && e.code === "declined") return;
+    if (e && e.code === "rate_limited") return toast("Finish the save prompt that's already open, then try again.");
+    toast(`Couldn't save ${name}: ${(e && e.message) || "saving isn't available here"}`);
+  }
+}
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+}
+
+// ---- engine ----
+const worker = new Worker("worker.js");
+function setEngine(state, text) { $("engine").dataset.state = state; $("engine-text").textContent = text; }
+worker.onmessage = ({ data }) => {
+  if (data.type === "ready") { engineReady = true; setEngine("ready", "Ready"); pump(); return; }
+  if (data.type === "engine_error") {
+    setEngine("error", "Failed");
+    toast(`The compression engine didn't load: ${data.message} Reload the page to try again.`);
+    for (const it of items) if (it.state === "queued") { it.state = "error"; it.error = "The compression engine didn't load. Reload the page and try again."; render(it); }
+    updateToolbar();
+    return;
+  }
+  const item = items.find((i) => i.id === data.id);
+  if (!item) return;
+  if (data.type === "progress") { item.progress = data.text; render(item); return; }
+  if (data.type === "done") {
+    const r = data.result;
+    r.parts = r.parts.map((p) => ({ name: p.name, size: p.size, blob: new Blob([p.bytes], { type: "application/pdf" }) }));
+    r.totalSize = r.parts.reduce((s, p) => s + p.size, 0);
+    item.result = r; item.state = "done";
+  } else if (data.type === "error") {
+    item.error = data.message; item.state = "error";
+  }
+  item.elapsed = (performance.now() - item.started) / 1000;
+  busy = false; render(item); updateToolbar(); pump();
+};
+worker.onerror = (e) => { setEngine("error", "Failed"); toast(`The compression engine stopped: ${e.message || "unknown error"}. Reload the page.`); };
+worker.postMessage({ type: "warmup" });
+
+// ---- settings ----
+const targetInput = $("target");
+try { const saved = localStorage.getItem("targetMb"); if (saved) targetInput.value = saved; } catch {}
+function syncPresets() {
+  for (const b of document.querySelectorAll(".chip")) b.setAttribute("aria-pressed", String(+b.dataset.mb === +targetInput.value));
+}
+targetInput.addEventListener("input", () => { try { localStorage.setItem("targetMb", targetInput.value); } catch {} syncPresets(); });
+$("presets").addEventListener("click", (e) => {
+  const mb = e.target.dataset && e.target.dataset.mb;
+  if (!mb) return;
+  targetInput.value = mb; targetInput.dispatchEvent(new Event("input"));
+});
+syncPresets();
+
+// ---- adding files ----
+const drop = $("drop"), picker = $("picker");
+drop.addEventListener("click", () => picker.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } });
+picker.addEventListener("change", () => { addFiles(picker.files); picker.value = ""; });
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => addFiles(e.dataTransfer.files));
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+
+function addFiles(fileList) {
+  const target = parseFloat(targetInput.value);
+  if (!(target >= 0.5 && target <= 500)) { toast("Set a max size between 0.5 and 500 MB first."); return; }
+  const all = [...fileList];
+  const pdfs = all.filter((f) => f.name.toLowerCase().endsWith(".pdf") || f.type === "application/pdf");
+  if (pdfs.length < all.length) toast(`Skipped ${all.length - pdfs.length} file(s) that aren't PDFs.`);
+  if (!pdfs.length) return;
+  if (!items.length) $("rows").innerHTML = "";
+  for (const file of pdfs) {
+    const item = { id: nextId++, file, target, state: "queued" };
+    item.row = document.createElement("tr");
+    $("rows").appendChild(item.row);
+    items.push(item);
+    render(item);
+  }
+  pump(); updateToolbar();
+}
+
+async function pump() {
+  if (busy || !engineReady) return;
+  const item = items.find((i) => i.state === "queued");
+  if (!item) return;
+  busy = true;
+  item.state = "working"; item.progress = "Reading file…"; item.started = performance.now(); render(item); updateToolbar();
+  let buffer;
+  try { buffer = await item.file.arrayBuffer(); }
+  catch { item.state = "error"; item.error = "Couldn't read this file from your computer."; busy = false; render(item); updateToolbar(); return pump(); }
+  const stem = item.file.name.replace(/\.pdf$/i, "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim() || "document";
+  worker.postMessage({ id: item.id, buffer, target: Math.round(item.target * MB), stem, maxParts: MAX_PARTS }, [buffer]);
+}
+
+// ---- rendering ----
+const fmt = (b) => b >= 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1e3)) + " KB";
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function render(item) {
+  const r = item.result;
+  let after = "", saved = "", quality = "", status = "", save = "", notes = "";
+  if (item.state === "queued") status = `<span class="pill s-busy">Queued</span>`;
+  if (item.state === "working") {
+    status = `<span class="pill s-busy"><span class="spin"></span>Working</span>`;
+    notes = `<div class="progress">${esc(item.progress || "")}</div>`;
+  }
+  if (item.state === "error") {
+    status = `<span class="pill s-err">Failed</span>`;
+    notes = `<div class="note err">${esc(item.error)}</div>`;
+  }
+  if (item.state === "done") {
+    const n = r.parts.length;
+    after = n > 1 ? `${fmt(r.totalSize)}<br><small>${r.parts.map((p) => (p.size / 1e6).toFixed(1)).join(" + ")} MB</small>` : fmt(r.totalSize);
+    saved = r.status === "unchanged" ? "–" : Math.max(0, Math.round((1 - r.totalSize / r.originalSize) * 100)) + "%";
+    quality = esc(r.quality || "");
+    const flagged = r.warnings.length > 0;
+    status = {
+      unchanged: `<span class="pill s-ok">Already under ${fmt(item.target * MB)}</span>`,
+      compressed: `<span class="pill ${flagged ? "s-warn" : "s-ok"}">Compressed</span>`,
+      split: `<span class="pill ${flagged ? "s-warn" : "s-ok"}">Split into ${n} parts</span>`,
+      over_target: `<span class="pill s-err">Still over ${fmt(item.target * MB)}</span>`,
+    }[r.status];
+    notes = r.warnings.map((w) => `<div class="note">${esc(w)}</div>`).join("");
+    save = `<div class="dl">${r.parts.map((p, i) =>
+      `<button class="link" data-item="${item.id}" data-part="${i}">${n > 1 ? `Part ${i + 1} of ${n}` : "Save PDF"}</button>`).join("")}</div>`;
+  }
+  item.row.innerHTML = `
+    <td><div class="fname">${esc(item.file.name)}</div>${notes}</td>
+    <td class="num">${fmt(item.file.size)}</td>
+    <td class="num">${after}</td>
+    <td class="num">${saved}</td>
+    <td class="num">${quality}</td>
+    <td>${status}</td>
+    <td>${save}</td>`;
+}
+
+$("rows").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-item]");
+  if (!b) return;
+  const item = items.find((i) => i.id === +b.dataset.item);
+  const part = item && item.result.parts[+b.dataset.part];
+  if (part) saveFile(part.name, part.blob);
+});
+
+function updateToolbar() {
+  const done = items.filter((i) => i.state === "done");
+  const pending = items.filter((i) => i.state === "queued" || i.state === "working").length;
+  const before = done.reduce((s, i) => s + i.result.originalSize, 0);
+  const after = done.reduce((s, i) => s + i.result.totalSize, 0);
+  let text = items.length ? `${done.length} of ${items.length} done` : "";
+  if (pending) text += ` · ${pending} to go`;
+  if (done.length) text += ` · ${fmt(before)} → ${fmt(after)}`;
+  $("summary").textContent = text;
+  $("zip").disabled = $("csv").disabled = !done.length;
+  $("clear").disabled = !items.length || pending > 0;
+}
+
+// ---- ZIP (stored, no compression: PDFs are already compressed) ----
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+async function makeZip(files) {
+  const enc = new TextEncoder(), chunks = [], central = [];
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  let offset = 0;
+  for (const f of files) {
+    const data = new Uint8Array(await f.blob.arrayBuffer());
+    const name = enc.encode(f.name), crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
+    local.setUint16(10, dosTime, true); local.setUint16(12, dosDate, true);
+    local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);
+    local.setUint16(26, name.length, true);
+    chunks.push(local, name, data);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true); cen.setUint16(8, 0x0800, true);
+    cen.setUint16(12, dosTime, true); cen.setUint16(14, dosDate, true);
+    cen.setUint32(16, crc, true); cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true);
+    cen.setUint16(28, name.length, true); cen.setUint32(42, offset, true);
+    central.push(cen, name);
+    offset += 30 + name.length + data.length;
+  }
+  const cenSize = central.reduce((s, c) => s + c.byteLength, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+  end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
+  return new Blob([...chunks, ...central, end], { type: "application/zip" });
+}
+
+$("zip").addEventListener("click", async () => {
+  const btn = $("zip"); btn.disabled = true; btn.textContent = "Preparing ZIP…";
+  try {
+    const files = [], used = new Set();
+    for (const it of items.filter((i) => i.state === "done")) {
+      for (const p of it.result.parts) {
+        let name = p.name, n = 2;
+        while (used.has(name)) name = p.name.replace(/\.pdf$/i, ` (${n++}).pdf`);
+        used.add(name); files.push({ name, blob: p.blob });
+      }
+    }
+    await saveFile("compressed-pdfs.zip", await makeZip(files));
+  } finally { btn.textContent = "Save all (ZIP)"; updateToolbar(); }
+});
+
+$("csv").addEventListener("click", () => {
+  const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  const lines = [["File", "Before (MB)", "After (MB)", "Saved %", "Parts", "Part sizes (MB)", "Quality", "Status", "Notes"].map(q).join(",")];
+  for (const i of items.filter((i) => i.state === "done")) {
+    const r = i.result;
+    lines.push([i.file.name, (r.originalSize / 1e6).toFixed(2), (r.totalSize / 1e6).toFixed(2),
+      Math.max(0, Math.round((1 - r.totalSize / r.originalSize) * 100)), r.parts.length,
+      r.parts.map((p) => (p.size / 1e6).toFixed(2)).join(" + "), r.quality, r.status, r.warnings.join(" ")].map(q).join(","));
+  }
+  saveFile("compression-report.csv", new Blob([lines.join("\r\n")], { type: "text/csv" }));
+});
+
+$("clear").addEventListener("click", () => {
+  items.length = 0;
+  $("rows").innerHTML = `<tr class="empty"><td colspan="7">No files yet. Drop PDFs above to start.</td></tr>`;
+  updateToolbar();
+});
+</script>
